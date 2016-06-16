@@ -36,9 +36,9 @@ Subroutine cvmix_math_driver()
   Ri_bulk(2) = -7.835367389899912e-7_cvmix_r8
   Ri_bulk(3) = 0.340014162061937_cvmix_r8
 
-  call cvmix_math_poly_interp(coeffs, cubic, depth(2:3), Ri_bulk(2:3),      &
+  call cvmix_math_poly_interp(coeffs, cubic, depth(2:3), Ri_bulk(2:3),        &
                               depth(1), Ri_bulk(1))
-  root = -cvmix_math_cubic_root_find(coeffs,                                  &
+  root = cvmix_math_cubic_root_find(coeffs,                                   &
                                      0.5_cvmix_r8*(depth(2) + depth(3)))
 
   print*, 'Interpolating with depth'
