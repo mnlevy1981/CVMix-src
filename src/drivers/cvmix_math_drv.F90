@@ -44,19 +44,19 @@ Subroutine cvmix_math_driver()
   print*, 'Interpolating with depth'
   print*, '----'
   print*, coeffs
-  print*, 'Root when depth = ', root
+  print*, 'Polynomial is 0 when depth = ', root
   print*, ''
 
   call cvmix_math_poly_interp(coeffs, cubic, norm_depth(2:3), Ri_bulk(2:3),   &
                               norm_depth(1), Ri_bulk(1))
-  root = -cvmix_math_cubic_root_find(coeffs,                                  &
+  root = cvmix_math_cubic_root_find(coeffs,                                   &
                                 0.5_cvmix_r8*(norm_depth(2) + norm_depth(3)))
   root = root*(depth(3) - depth(1)) + depth(1)
 
-  print*, 'Interpolating with depth'
+  print*, 'Interpolating with normalized depth'
   print*, '----'
   print*, coeffs
-  print*, 'Root when depth = ', root
+  print*, 'Polynomial is 0 when depth = ', root
 !EOC
 
 End Subroutine cvmix_math_driver
