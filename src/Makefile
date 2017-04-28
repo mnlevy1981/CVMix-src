@@ -36,24 +36,69 @@ ENV_FILE = $(BLD_DIR)/.CVMix_env
 # netCDF (see below for more details)
 INFO_FILE = $(BLD_DIR)/.netcdf_info
 
-ifeq ($(wildcard $(ENV_FILE)),)
-  NEED_ENV_FILE = TRUE
-else
-  NEED_ENV_FILE = FALSE
-  include $(ENV_FILE)
-  SHR_FLAGS = FC=$(FC) FCFLAGS="$(FCFLAGS)" SRC_DIR=$(SRC_SHARED_DIR)         \
-              OBJ_DIR=$(OBJ_DIR) LIB_DIR=$(LIB_DIR) INC_DIR=$(INC_DIR)        \
-              UCASE=$(UCASE)
-endif
-
-# update FCFLAGS based on compiler
-include $(BLD_DIR)/CompileFlags.mak
 LINKING_FLAGS = -L$(LIB_DIR) -lcvmix
 
 # Dependency generation
 MAKE_DEP = $(SRC_SHARED_DIR)/makedep.py
 DEP_FILE = $(OBJ_DIR)/standalone_deps.d
 
+ifneq ($(wildcard $(INFO_FILE)),)
+  OLD_NETCDF = $(shell cat $(INFO_FILE))
+else
+  OLD_NETCDF = $(NEW_NETCDF)
+endif
+
+# Dependencies: all drivers use cvmix_io
+# Note that these are separated
+OBJS = cvmix_driver.o \
+       cvmix_io.o
+DRIVER_OBJS = cvmix_bgrnd_BL.o      \
+              cvmix_shear_drv.o     \
+              cvmix_tidal_Simmons.o \
+              cvmix_ddiff_drv.o     \
+              cvmix_kpp_drv.o
+ifeq ($(UCASE),TRUE)
+  MODS_TMP = $(shell echo $(OBJS) | tr '[a-z]' '[A-Z]')
+  MODS = ${MODS_TMP:.O=.mod}
+else
+  MODS = ${OBJS:.o=.mod}
+endif
+
+ifeq ($(USE_DEPS),TRUE)
+  include $(DEP_FILE)
+endif
+
+### TARGETS ###
+
+.PHONY: exe netcdf depends check lib dynlib remove_exe setenv \
+        clean libclean allclean distclean
+
+all: exe
+
+$(EXE): $(addprefix $(OBJ_DIR)/,$(OBJS) $(DRIVER_OBJS))        \
+        $(LIB_DIR)/libcvmix.a
+	$(FC) -o $(EXE) $(addprefix $(OBJ_DIR)/,$(OBJS) $(DRIVER_OBJS)) $(LINKING_FLAGS)
+
+# Create all object and module files
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.F90
+	$(FC) $(FCFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/%.o: $(SRC_DRIVE_DIR)/%.F90
+	$(FC) $(FCFLAGS) -c $< -o $@
+
+# Dependencies are read in from standalone_deps.d
+$(DEP_FILE): $(MAKE_DEP) $(SRC_DIR)/*.F90 $(SRC_DRIVE_DIR)/*.F90
+	$(MAKE_DEP) $(DEP_FILE) $(OBJ_DIR) $(SRC_DIR) $(SRC_DRIVE_DIR) $(INC_DIR)
+	@echo "Generated dependencies!"
+
+# The variables FC, NETCDF_INC, NETCDF_LIB, and NETCDF_LINK are read in from
+# CVMix_env. If the file doesn't exist, then the python script "cvmix_setup"
+# is run to generate the file.
+setenv: $(ENV_FILE)
+ifeq ($(findstring clean,$(MAKECMDGOALS)),)
+include $(ENV_FILE)
+# update FCFLAGS based on compiler
+include $(BLD_DIR)/CompileFlags.mak
 # If you build without netCDF and then decide you want to build with netCDF (or
 # vice versa), you need to clean the cvmix_io and cvmix_driver object files.
 # The way this is handled is by storing whether the last compilation used netCDF
@@ -107,78 +152,23 @@ ifeq ($(USE_NETCDF),TRUE)
 else
   NEW_NETCDF = NO
 endif
-
-# Need to include cvmix_kinds_and_types.mod from include (not from bld/obj)
-FCFLAGS += -I$(INC_DIR)
-
-ifneq ($(wildcard $(INFO_FILE)),)
-  OLD_NETCDF = $(shell cat $(INFO_FILE))
-else
-  OLD_NETCDF = $(NEW_NETCDF)
-endif
-
 ifneq ($(OLD_NETCDF), $(NEW_NETCDF))
   REBUILD = TRUE
 endif
-
-# Dependencies: all drivers use cvmix_io
-# Note that these are separated 
-OBJS = cvmix_driver.o \
-       cvmix_io.o
-DRIVER_OBJS = cvmix_bgrnd_BL.o      \
-              cvmix_shear_drv.o     \
-              cvmix_tidal_Simmons.o \
-              cvmix_ddiff_drv.o     \
-              cvmix_kpp_drv.o
-ifeq ($(UCASE),TRUE)
-  MODS_TMP = $(shell echo $(OBJS) | tr '[a-z]' '[A-Z]')
-  MODS = ${MODS_TMP:.O=.mod}
-else
-  MODS = ${OBJS:.o=.mod}
+# Need to include cvmix_kinds_and_types.mod from include (not from bld/obj)
+FCFLAGS += -I$(INC_DIR)
+SHR_FLAGS = FC=$(FC) FCFLAGS="$(FCFLAGS)" SRC_DIR=$(SRC_SHARED_DIR)         \
+            OBJ_DIR=$(OBJ_DIR) LIB_DIR=$(LIB_DIR) INC_DIR=$(INC_DIR)        \
+            UCASE=$(UCASE)
 endif
 
-ifeq ($(USE_DEPS),TRUE)
-  include $(DEP_FILE)
-endif
-
-### TARGETS ###
-
-all: exe
-
-$(EXE): $(addprefix $(OBJ_DIR)/,$(OBJS) $(DRIVER_OBJS))        \
-        $(LIB_DIR)/libcvmix.a
-	$(FC) -o $(EXE) $(addprefix $(OBJ_DIR)/,$(OBJS) $(DRIVER_OBJS)) $(LINKING_FLAGS)
-
-# Create all object and module files
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.F90
-	$(FC) $(FCFLAGS) -c $< -o $@
-
-$(OBJ_DIR)/%.o: $(SRC_DRIVE_DIR)/%.F90
-	$(FC) $(FCFLAGS) -c $< -o $@
-
-# Dependencies are read in from standalone_deps.d 
-$(DEP_FILE): $(MAKE_DEP) $(SRC_DIR)/*.F90 $(SRC_DRIVE_DIR)/*.F90
-	$(MAKE_DEP) $(DEP_FILE) $(OBJ_DIR) $(SRC_DIR) $(SRC_DRIVE_DIR) $(INC_DIR)
-	@echo "Generated dependencies!"
-
-# The variables FC, NETCDF_INC, NETCDF_LIB, and NETCDF_LINK are read in from
-# CVMix_env. If the file doesn't exist, then the python script "cvmix_setup"
-# is run to generate the file.
 $(ENV_FILE):
 	@(cd $(BLD_DIR); ./cvmix_setup)
-	$(MAKE) -f $(SRC_DIR)/Makefile
-
-.PHONY: exe netcdf depends check lib remove_exe clean libclean allclean       \
-        distclean
 
 # Possible executables: with and without netCDF
 exe: check $(ENV_FILE) lib depends
-# If NEED_ENV_FILE is TRUE, the check target recursively calls make
-# With NEED_ENV_FILE equal to FALSE, so the executable will be built
-ifeq ($(NEED_ENV_FILE),FALSE)
 	cd $(SRC_DIR); $(MAKE) $(EXE) USE_DEPS=TRUE
 	$(shell echo $(NEW_NETCDF) > $(INFO_FILE))
-endif
 
 netcdf:
 	$(MAKE) -f $(SRC_DIR)/Makefile USE_NETCDF=TRUE
@@ -190,12 +180,11 @@ depends: $(DEP_FILE)
 check:
 	$(if $(REBUILD), rm -f $(addprefix $(OBJ_DIR)/,cvmix_io.o $(DRIVER_OBJS)))
 
-lib: $(ENV_FILE)
-# For some reason, changing the way $(ENV_FILE) is build made it necessary
-# to only call this when NEED_ENV_FILE is FALSE
-ifeq ($(NEED_ENV_FILE),FALSE)
+lib: setenv
 	$(MAKE) -f $(SRC_SHARED_DIR)/Makefile $(SHR_FLAGS)
-endif
+
+dynlib: setenv
+	$(MAKE) -f $(SRC_SHARED_DIR)/Makefile $(SHR_FLAGS) dynlib
 
 # Delete the executable
 remove_exe:
@@ -217,12 +206,10 @@ libclean:
               OBJ_DIR=$(OBJ_DIR) LIB_DIR=$(LIB_DIR) INC_DIR=$(INC_DIR)        \
               UCASE=FALSE
 
-allclean:
-	$(MAKE) -f $(SRC_DIR)/Makefile libclean
+allclean: libclean
 	$(MAKE) -f $(SRC_DIR)/Makefile clean UCASE=TRUE
 	$(MAKE) -f $(SRC_DIR)/Makefile clean UCASE=FALSE
 
 # Deletes $(ENV_FILE) in addition to everything else
-distclean:
-	$(MAKE) -f $(SRC_DIR)/Makefile allclean
+distclean: allclean
 	/bin/rm -rf $(ENV_FILE)
