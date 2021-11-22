@@ -52,3 +52,9 @@ mix_type = 'kpp'
   Cp0        = 3992.0d0
   OBL_depth6 = 6000.0d0
 /
+
+! Test 7 params
+&kpp_col7_nml
+  ltest7 = .true.
+/
+

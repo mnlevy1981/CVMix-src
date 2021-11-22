@@ -17,6 +17,8 @@ Subroutine cvmix_kpp_driver()
                                     cvmix_one,                &
                                     cvmix_strlen,             &
                                     cvmix_data_type
+  use cvmix_convection,      only : cvmix_init_conv,    &
+                                    cvmix_coeffs_conv
   use cvmix_kpp,             only : cvmix_init_kpp,                           &
                                     cvmix_get_kpp_real,                       &
                                     cvmix_kpp_compute_OBL_depth,              &
@@ -42,9 +44,10 @@ Subroutine cvmix_kpp_driver()
   real(cvmix_r8), parameter :: third = cvmix_one / real(3,cvmix_r8)
 
   ! CVMix datatypes
-  type(cvmix_data_type)       :: CVmix_vars1, CVmix_vars4, CVmix_vars5
+  type(cvmix_data_type)       :: CVmix_vars1, CVmix_vars4, CVmix_vars5, CVmix_vars7
 
   real(cvmix_r8), dimension(:),   allocatable, target :: Mdiff, Tdiff, Sdiff
+  real(cvmix_r8), dimension(:),   allocatable, target :: Nsqr_iface, dens, dens_lwr
   real(cvmix_r8), dimension(:),   allocatable, target :: zt, zw_iface,        &
                                                          Ri_bulk, Ri_bulk2
   real(cvmix_r8), dimension(:),   allocatable, target :: w_m, w_s, zeta
@@ -55,9 +58,11 @@ Subroutine cvmix_kpp_driver()
   real(cvmix_r8), dimension(:,:), allocatable, target :: hor_vel
   real(cvmix_r8), dimension(2)                        :: ref_vel
   real(cvmix_r8), dimension(4) :: shape_coeffs
-  integer :: i, fid, kt, kw, nlev1, nlev3, nlev4, max_nlev4, OBL_levid4, nlev5
+  integer :: i, fid, kt, kw, nlev1, nlev3, nlev4, max_nlev4, OBL_levid4,      &
+             nlev5, nlev7
   real(cvmix_r8) :: hmix1, hmix5, ri_crit, layer_thick1, layer_thick4,        &
-                    layer_thick5, OBL_depth4, OBL_depth5, N, Nsqr
+                    layer_thick5, layer_thick7, OBL_depth4, OBL_depth5, N,    &
+                    Nsqr
   real(cvmix_r8) :: kOBL_depth, Bslope, Vslope
   real(cvmix_r8) :: sigma6, OBL_depth6, surf_buoy_force6, surf_fric_vel6,     &
                     vonkarman6, tao, rho0, grav, alpha, Qnonpen, Cp0,         &
@@ -65,7 +70,7 @@ Subroutine cvmix_kpp_driver()
   character(len=cvmix_strlen) :: interp_type_t1, interp_type_t4, interp_type_t5
   character(len=cvmix_strlen) :: filename
   ! True => run specified test
-  logical :: ltest1, ltest2, ltest3, ltest4, ltest5, ltest6
+  logical :: ltest1, ltest2, ltest3, ltest4, ltest5, ltest6, ltest7
   logical :: lnoDGat1 ! True => G'(1) = 0 (in test 4)
 
   namelist/kpp_col1_nml/ltest1, nlev1, layer_thick1, interp_type_t1, hmix1,   &
@@ -76,6 +81,7 @@ Subroutine cvmix_kpp_driver()
   namelist/kpp_col5_nml/ltest5, nlev5, layer_thick5, hmix5, interp_type_t5
   namelist/kpp_col6_nml/ltest6, vonkarman6, tao, rho0, grav, alpha, Qnonpen,  &
                         Cp0, OBL_depth6
+  namelist/kpp_col7_nml/ltest7
 
   ! Read namelists
 
@@ -118,12 +124,16 @@ Subroutine cvmix_kpp_driver()
   Cp0        =  real(3992, cvmix_r8)
   OBL_depth6 =  real(6000, cvmix_r8)
 
+  ! Defaults for test 7
+  ltest7 = .false.
+
   read(*, nml=kpp_col1_nml)
   read(*, nml=kpp_col2_nml)
   read(*, nml=kpp_col3_nml)
   read(*, nml=kpp_col4_nml)
   read(*, nml=kpp_col5_nml)
   read(*, nml=kpp_col6_nml)
+  read(*, nml=kpp_col7_nml)
 
   ! Test 1: user sets up levels via namelist (constant thickness) and specifies
   !         critical Richardson number as well as depth parameter hmix1. The
@@ -591,6 +601,53 @@ Subroutine cvmix_kpp_driver()
 
   end if ! ltest6
 
+  if (ltest7) then
+    print*, ""
+    print*, "Test 7: Convective mixing"
+    print*, "----------"
+
+    ! Set up vertical levels (centers and interfaces)
+    nlev7 = 5
+    layer_thick7 = real(5,cvmix_r8)
+    allocate(zt(nlev7), zw_iface(nlev7+1))
+    zt = cvmix_zero
+    zw_iface = cvmix_zero
+    do kw=1,nlev7+1
+      zw_iface(kw) = -layer_thick7*real(kw-1, cvmix_r8)
+    end do
+    do kt=1,nlev4
+      zt(kt) = 0.5_cvmix_r8*(zw_iface(kt)+zw_iface(kt+1))
+    end do
+    CVmix_vars7%zt_cntr  => zt(:)
+    CVmix_vars7%zw_iface => zw_iface(:)
+
+    ! Set up diffusivities
+    allocate(Mdiff(nlev7+1), Tdiff(nlev7+1))
+    CVmix_vars7%Mdiff_iface => Mdiff
+    CVmix_vars7%Tdiff_iface => Tdiff
+
+    ! Set physical properties of column for test 4
+    allocate(Nsqr_iface(nlev7+1), dens(nlev7), dens_lwr(nlev7))
+    Nsqr_iface = cvmix_one
+    dens = cvmix_one
+    dens_lwr = cvmix_one
+    call cvmix_put(CVmix_vars7, 'nlev',      nlev7)
+    call cvmix_put(CVmix_vars7, 'max_nlev',  nlev7)
+    call cvmix_put(CVmix_vars7, 'ocn_depth', layer_thick7*real(nlev7,cvmix_r8))
+    call cvmix_put(CVmix_vars7, 'surf_fric', cvmix_one)
+    call cvmix_put(CVmix_vars7, 'surf_buoy', real(100, cvmix_r8))
+    call cvmix_put(CVmix_vars7, 'Coriolis',  1e-4_cvmix_r8)
+    CVmix_vars7%SqrBuoyancyFreq_iface => Nsqr_iface
+    CVmix_vars7%WaterDensity_cntr => dens
+    CVmix_vars7%AdiabWaterDensity_cntr => dens_lwr
+
+    call cvmix_init_conv(1e-4_cvmix_r8, 1e-4_cvmix_r8)
+    call cvmix_coeffs_conv(CVmix_vars7)
+    print*, "Successfully called cvmix_coeffs_conv()"
+
+    deallocate(zt, zw_iface)
+    deallocate(Mdiff, Tdiff)
+  end if
 !EOC
 
 End Subroutine cvmix_kpp_driver
